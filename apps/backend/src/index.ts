@@ -1,9 +1,14 @@
-import { Hono } from 'hono'
+import { Hono } from "hono";
 
-const app = new Hono()
+const app = new Hono();
 
-app.get('/', (c) => {
-  return c.text(`Hello Hono! ${Bun.env.TEST}`)
-})
+app.get("/", (c) => {
+  return c.text(`Hello Hono! ${Bun.env.TEST}`);
+});
 
-export default app
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is not set");
+  process.exit(1);
+}
+
+export default app;
