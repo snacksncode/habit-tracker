@@ -1,31 +1,12 @@
-import { drizzle } from "drizzle-orm/node-postgres";
 import { usersTable } from "./db/schema";
-import { eq } from "drizzle-orm";
-
-const db = drizzle(process.env.DATABASE_URL);
+import { db } from "./db";
+import { seed, reset } from "drizzle-seed";
 
 async function main() {
-  const user: typeof usersTable.$inferInsert = {
-    name: "John",
-    age: 30,
-    email: "john@example.com",
-  };
-  await db.insert(usersTable).values(user);
-  console.log("New user created!");
-  const users = await db
-    .select({ id: usersTable.id, email: usersTable.email })
-    .from(usersTable);
-  console.log("Getting all users from the database: ", users);
-
-  await db
-    .update(usersTable)
-    .set({
-      age: 31,
-    })
-    .where(eq(usersTable.email, user.email));
-  console.log("User info updated!");
-
-  // await db.delete(usersTable).where(eq(usersTable.email, user.email));
-  // console.log("User deleted!");
+  await reset(db, { usersTable });
+  await seed(db, { usersTable }, { count: 10 });
 }
-main();
+
+if (Bun.main) {
+  main();
+}

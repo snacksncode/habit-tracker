@@ -1,4 +1,18 @@
+# Local
+.DS_Store
+*.local
+*.log*
+
+# Dist
 node_modules
-/.cache
-/build
-.env
+dist/
+.vinxi
+.output
+.vercel
+.netlify
+.wrangler
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
