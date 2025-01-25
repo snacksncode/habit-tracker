@@ -1,5 +1,5 @@
-import * as schema from "./db/schema";
-import { db } from "./db";
+import * as schema from "./schema";
+import { db } from "./";
 import { reset, seed } from "drizzle-seed";
 import { migrate } from "drizzle-orm/libsql/migrator";
 

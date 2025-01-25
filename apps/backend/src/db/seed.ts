@@ -1,5 +1,5 @@
-import * as schema from "./db/schema";
-import { db } from "./db";
+import * as schema from "./schema";
+import { db } from "./";
 import { seed } from "drizzle-seed";
 
 async function main() {
