@@ -1,17 +1,7 @@
-import { sql } from "drizzle-orm";
-import { check, integer, pgTable, varchar } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
-export const usersTable = pgTable(
-  "users",
-  {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    name: varchar({ length: 255 }).notNull(),
-    age: integer().notNull(),
-    email: varchar({ length: 255 }).notNull().unique(),
-  },
-  (table) => [
-    {
-      checkConstraint: check("age_check1", sql`${table.age} > 21`),
-    },
-  ]
-);
+export const usersTable = sqliteTable("users", {
+  id: integer("id").primaryKey(),
+  name: text("name"),
+  email: text("email").unique(),
+});
