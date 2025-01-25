@@ -15,3 +15,5 @@ app.get("/users", async (c) => {
       .from(usersTable)
   );
 });
+
+export default app;

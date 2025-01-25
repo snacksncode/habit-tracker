@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/server.ts"
   },
   "dependencies": {
     "@libsql/client": "0.14.0",
