@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1737811883543,
-      "tag": "0000_steady_greymalkin",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1737812726878,
-      "tag": "0001_rich_vargas",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1737813146440,
-      "tag": "0002_broad_captain_flint",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1737813426291,
-      "tag": "0003_goofy_jamie_braddock",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1737815408854,
-      "tag": "0004_flawless_midnight",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1737816501367,
-      "tag": "0005_bumpy_albert_cleary",
+      "when": 1740736427807,
+      "tag": "0000_cuddly_black_panther",
       "breakpoints": true
     }
   ]
