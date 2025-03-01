@@ -50,7 +50,7 @@ const Tab = ({ className, ...props }: AriaTabProps) => (
   <AriaTab
     className={composeRenderProps(className, (className) =>
       cn(
-        "inline-flex h-full cursor-pointer justify-center whitespace-nowrap rounded-sm px-3 text-sm font-medium outline-none ring-offset-background transition-all",
+        "inline-flex h-full cursor-pointer justify-center whitespace-nowrap rounded-sm px-3 text-sm font-medium outline-none ring-offset-background",
         /* Focus Visible */
         "data-[focus-visible]:ring-2 data-[focus-visible]:ring-ring data-[focus-visible]:ring-offset-2",
         /* Disabled */

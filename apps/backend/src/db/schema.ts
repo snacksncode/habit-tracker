@@ -8,16 +8,15 @@ export const usersTable = sqliteTable("users", {
   level: integer("level").notNull().default(0),
   name: text("name").notNull(),
   email: text("email").unique().notNull(),
+  password: text("password").notNull(),
 });
 
 export const habitsTable = sqliteTable("habits", {
   id: integer("id").primaryKey(),
   user_id: integer("user_id")
     .notNull()
-    .references(() => usersTable.id, {
-      onDelete: "cascade",
-    }),
-  name: text("name"),
+    .references(() => usersTable.id),
+  name: text("name").notNull(),
   completed: integer("completed").notNull().default(0),
   to_complete: integer("to_complete").notNull().default(1),
   status: integer("status").notNull().default(0),
@@ -30,9 +29,8 @@ export const todosTable = sqliteTable("todos", {
   id: integer("id").primaryKey(),
   user_id: integer("user_id")
     .notNull()
-    .references(() => usersTable.id, {
-      onDelete: "cascade",
-    }),
+    .references(() => usersTable.id),
   name: text("name").notNull(),
-  is_completed: integer("is_completed").default(0),
+  date: text("date").notNull(),
+  is_completed: integer("is_completed", { mode: "boolean" }).default(false),
 });

@@ -1,42 +1,85 @@
 import { Hono } from "hono";
 import { db } from "./db";
 import { usersTable, habitsTable, todosTable } from "./db/schema";
-import { eq } from "drizzle-orm";
+import { cors } from "hono/cors";
+import { eq, and } from "drizzle-orm";
 
-const app = new Hono();
+// Define TypeScript interfaces
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
 
+// Define our custom context with the user variable
+type CustomContext = {
+  Variables: {
+    user: User;
+  };
+};
+
+const app = new Hono<CustomContext>();
+
+app.use("*", cors());
+
+// In-memory token storage
+const tokenStore = new Map<string, User>();
+
+// Generate a simple token
+function generateToken(): string {
+  return (
+    Math.random().toString(36).substring(2, 15) +
+    Math.random().toString(36).substring(2, 15)
+  );
+}
+
+// Authentication middleware with proper typing
+const authMiddleware = async (c: any, next: any) => {
+  const token = c.req.header("TOKEN");
+
+  if (!token || !tokenStore.has(token)) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  // Add user info to the context
+  c.set("user", tokenStore.get(token));
+
+  await next();
+};
+
+// Public routes
 app.get("/", async (c) => {
   return c.json({ message: "Habit Tracker API!" });
 });
 
-app.get("/users", async (c) => {
-  return c.json(
-    await db
-      .select({
-        name: usersTable.id,
-        email: usersTable.email,
-        id: usersTable.id,
-      })
-      .from(usersTable)
-  );
-});
-
-app.get("/users/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
-  const user = await db.select().from(usersTable).where(eq(usersTable.id, id));
-  if (user.length === 0) {
-    return c.json({ error: "User not found" }, 404);
-  }
-
-  return c.json(user[0]);
-});
-
-app.post("/users", async (c) => {
+// Registration endpoint
+app.post("/register", async (c) => {
   try {
     const body = await c.req.json();
 
-    if (!body.name || !body.email) {
-      return c.json({ error: "Name and email are required" }, 400);
+    if (!body.name || !body.email || !body.password) {
+      return c.json({ error: "Name, email, and password are required" }, 400);
+    }
+
+    // Simple email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(body.email)) {
+      return c.json({ error: "Invalid email format" }, 400);
+    }
+
+    // Simple password validation
+    if (body.password.length < 6) {
+      return c.json({ error: "Password must be at least 6 characters" }, 400);
+    }
+
+    // Check if user already exists
+    const existingUser = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, body.email));
+
+    if (existingUser.length > 0) {
+      return c.json({ error: "Email already registered" }, 400);
     }
 
     const newUser = await db
@@ -44,6 +87,7 @@ app.post("/users", async (c) => {
       .values({
         name: body.name,
         email: body.email,
+        password: body.password,
         avatar_id: body.avatar_id || 1,
         health: body.health || 0,
         experience: body.experience || 0,
@@ -51,21 +95,127 @@ app.post("/users", async (c) => {
       })
       .returning();
 
-    return c.json(newUser[0], 201);
+    return c.json(
+      {
+        message: "User registered successfully",
+        user: {
+          id: newUser[0].id,
+          name: newUser[0].name,
+          email: newUser[0].email,
+        },
+      },
+      201
+    );
   } catch (error) {
-    return c.json({ error: "Failed to create user" }, 500);
+    return c.json({ error: "Failed to register user" }, 500);
   }
 });
 
-app.put("/users/:id", async (c) => {
+// Login endpoint
+app.post("/login", async (c) => {
+  try {
+    console.log("HIT");
+    const body = await c.req.json();
+
+    if (!body.email || !body.password) {
+      return c.json({ error: "Email and password are required" }, 400);
+    }
+
+    const user = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, body.email))
+      .limit(1);
+
+    console.log(user);
+
+    if (user.length === 0 || user[0].password !== body.password) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
+
+    // Generate token
+    const token = generateToken();
+
+    // Store token with user info
+    tokenStore.set(token, {
+      id: user[0].id,
+      name: user[0].name,
+      email: user[0].email,
+    });
+
+    return c.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user[0].id,
+        name: user[0].name,
+        email: user[0].email,
+      },
+    });
+  } catch (error) {
+    return c.json({ error: "Failed to login" }, 500);
+  }
+});
+
+// Logout endpoint
+app.post("/logout", authMiddleware, async (c) => {
+  const token = c.req.header("TOKEN");
+  if (token) {
+    tokenStore.delete(token);
+  }
+  return c.json({ message: "Logged out successfully" });
+});
+
+// Protected user endpoints
+app.get("/users", authMiddleware, async (c) => {
+  return c.json(
+    await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+      })
+      .from(usersTable)
+  );
+});
+
+app.get("/users/:id", authMiddleware, async (c) => {
+  const id = parseInt(c.req.param("id"));
+  const currentUser = c.get("user");
+
+  // Users can only access their own information
+  if (currentUser.id !== id) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  const user = await db.select().from(usersTable).where(eq(usersTable.id, id));
+
+  if (user.length === 0) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  // Don't return password in response
+  const { password, ...userWithoutPassword } = user[0];
+  return c.json(userWithoutPassword);
+});
+
+app.put("/users/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
+
+    // Users can only update their own information
+    if (currentUser.id !== id) {
+      return c.json({ error: "Access denied" }, 403);
+    }
+
     const body = await c.req.json();
 
     const existingUser = await db
       .select()
       .from(usersTable)
       .where(eq(usersTable.id, id));
+
     if (existingUser.length === 0) {
       return c.json({ error: "User not found" }, 404);
     }
@@ -90,20 +240,29 @@ app.put("/users/:id", async (c) => {
       .where(eq(usersTable.id, id))
       .returning();
 
-    return c.json(updatedUser[0]);
+    // Don't return password in response
+    const { password, ...userWithoutPassword } = updatedUser[0];
+    return c.json(userWithoutPassword);
   } catch (error) {
     return c.json({ error: "Failed to update user" }, 500);
   }
 });
 
-app.delete("/users/:id", async (c) => {
+app.delete("/users/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
+
+    // Users can only delete their own account
+    if (currentUser.id !== id) {
+      return c.json({ error: "Access denied" }, 403);
+    }
 
     const existingUser = await db
       .select()
       .from(usersTable)
       .where(eq(usersTable.id, id));
+
     if (existingUser.length === 0) {
       return c.json({ error: "User not found" }, 404);
     }
@@ -115,20 +274,29 @@ app.delete("/users/:id", async (c) => {
   }
 });
 
-// HABITS endpoints
-app.get("/habits/user/:user_id", async (c) => {
-  const user_id = parseInt(c.req.param("user_id"));
+// Protected habit endpoints
+app.get("/habits", authMiddleware, async (c) => {
+  const currentUser = c.get("user");
+
+  // Only return habits belonging to the authenticated user
   return c.json(
-    await db.select().from(habitsTable).where(eq(habitsTable.user_id, user_id))
+    await db
+      .select()
+      .from(habitsTable)
+      .where(eq(habitsTable.user_id, currentUser.id))
   );
 });
 
-app.get("/habits/:id", async (c) => {
+app.get("/habits/:id", authMiddleware, async (c) => {
   const id = parseInt(c.req.param("id"));
+  const currentUser = c.get("user");
+
   const habit = await db
     .select()
     .from(habitsTable)
-    .where(eq(habitsTable.id, id));
+    .where(
+      and(eq(habitsTable.id, id), eq(habitsTable.user_id, currentUser.id))
+    );
 
   if (habit.length === 0) {
     return c.json({ error: "Habit not found" }, 404);
@@ -137,25 +305,21 @@ app.get("/habits/:id", async (c) => {
   return c.json(habit[0]);
 });
 
-app.post("/habits", async (c) => {
+app.post("/habits", authMiddleware, async (c) => {
+  await new Promise((res) => setTimeout(res, 1000));
+
   try {
     const body = await c.req.json();
-    if (!body.user_id || !body.name) {
-      return c.json({ error: "User ID and name are required" }, 400);
-    }
+    const currentUser = c.get("user");
 
-    const user = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, body.user_id));
-    if (user.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    if (!body.name || !body.freq) {
+      return c.json({ error: "Name and freq required" }, 400);
     }
 
     const newHabit = await db
       .insert(habitsTable)
       .values({
-        user_id: body.user_id,
+        user_id: currentUser.id, // Associate with current user
         name: body.name,
         completed: body.completed || 0,
         to_complete: body.to_complete || 1,
@@ -170,27 +334,31 @@ app.post("/habits", async (c) => {
   }
 });
 
-app.put("/habits/:id", async (c) => {
+app.put("/habits/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
     const body = await c.req.json();
 
     const existingHabit = await db
       .select()
       .from(habitsTable)
-      .where(eq(habitsTable.id, id));
+      .where(
+        and(eq(habitsTable.id, id), eq(habitsTable.user_id, currentUser.id))
+      );
+
     if (existingHabit.length === 0) {
       return c.json({ error: "Habit not found" }, 404);
     }
+
+    const new_completed = body.completed ?? existingHabit[0].completed;
 
     const updatedHabit = await db
       .update(habitsTable)
       .set({
         name: body.name !== undefined ? body.name : existingHabit[0].name,
         completed:
-          body.completed !== undefined
-            ? body.completed
-            : existingHabit[0].completed,
+          new_completed > body.to_complete ? body.to_complete : new_completed,
         to_complete:
           body.to_complete !== undefined
             ? body.to_complete
@@ -208,14 +376,18 @@ app.put("/habits/:id", async (c) => {
   }
 });
 
-app.delete("/habits/:id", async (c) => {
+app.delete("/habits/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
 
     const existingHabit = await db
       .select()
       .from(habitsTable)
-      .where(eq(habitsTable.id, id));
+      .where(
+        and(eq(habitsTable.id, id), eq(habitsTable.user_id, currentUser.id))
+      );
+
     if (existingHabit.length === 0) {
       return c.json({ error: "Habit not found" }, 404);
     }
@@ -227,16 +399,27 @@ app.delete("/habits/:id", async (c) => {
   }
 });
 
-app.get("/todos/user/:user_id", async (c) => {
-  const user_id = parseInt(c.req.param("user_id"));
+// Protected todo endpoints
+app.get("/todos", authMiddleware, async (c) => {
+  const currentUser = c.get("user");
+
+  // Only return todos belonging to the authenticated user
   return c.json(
-    await db.select().from(todosTable).where(eq(todosTable.user_id, user_id))
+    await db
+      .select()
+      .from(todosTable)
+      .where(eq(todosTable.user_id, currentUser.id))
   );
 });
 
-app.get("/todos/:id", async (c) => {
+app.get("/todos/:id", authMiddleware, async (c) => {
   const id = parseInt(c.req.param("id"));
-  const todo = await db.select().from(todosTable).where(eq(todosTable.id, id));
+  const currentUser = c.get("user");
+
+  const todo = await db
+    .select()
+    .from(todosTable)
+    .where(and(eq(todosTable.id, id), eq(todosTable.user_id, currentUser.id)));
 
   if (todo.length === 0) {
     return c.json({ error: "Todo not found" }, 404);
@@ -245,27 +428,23 @@ app.get("/todos/:id", async (c) => {
   return c.json(todo[0]);
 });
 
-app.post("/todos", async (c) => {
+app.post("/todos", authMiddleware, async (c) => {
+  await new Promise((res) => setTimeout(res, 1000));
   try {
     const body = await c.req.json();
-    if (!body.user_id || !body.name) {
-      return c.json({ error: "User ID and name are required" }, 400);
-    }
+    const currentUser = c.get("user");
 
-    const user = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, body.user_id));
-    if (user.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    if (!body.name || !body.date) {
+      return c.json({ error: "Name and date required" }, 400);
     }
 
     const newTodo = await db
       .insert(todosTable)
       .values({
-        user_id: body.user_id,
+        user_id: currentUser.id, // Associate with current user
+        date: body.date,
         name: body.name,
-        is_completed: body.is_completed || 0,
+        is_completed: false,
       })
       .returning();
 
@@ -275,15 +454,19 @@ app.post("/todos", async (c) => {
   }
 });
 
-app.put("/todos/:id", async (c) => {
+app.put("/todos/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
     const body = await c.req.json();
 
     const existingTodo = await db
       .select()
       .from(todosTable)
-      .where(eq(todosTable.id, id));
+      .where(
+        and(eq(todosTable.id, id), eq(todosTable.user_id, currentUser.id))
+      );
+
     if (existingTodo.length === 0) {
       return c.json({ error: "Todo not found" }, 404);
     }
@@ -292,6 +475,7 @@ app.put("/todos/:id", async (c) => {
       .update(todosTable)
       .set({
         name: body.name !== undefined ? body.name : existingTodo[0].name,
+        date: body.date !== undefined ? body.date : existingTodo[0].date,
         is_completed:
           body.is_completed !== undefined
             ? body.is_completed
@@ -306,14 +490,18 @@ app.put("/todos/:id", async (c) => {
   }
 });
 
-app.delete("/todos/:id", async (c) => {
+app.delete("/todos/:id", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
 
     const existingTodo = await db
       .select()
       .from(todosTable)
-      .where(eq(todosTable.id, id));
+      .where(
+        and(eq(todosTable.id, id), eq(todosTable.user_id, currentUser.id))
+      );
+
     if (existingTodo.length === 0) {
       return c.json({ error: "Todo not found" }, 404);
     }
@@ -325,19 +513,23 @@ app.delete("/todos/:id", async (c) => {
   }
 });
 
-app.patch("/todos/:id/toggle", async (c) => {
+app.patch("/todos/:id/toggle", authMiddleware, async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
+    const currentUser = c.get("user");
 
     const existingTodo = await db
       .select()
       .from(todosTable)
-      .where(eq(todosTable.id, id));
+      .where(
+        and(eq(todosTable.id, id), eq(todosTable.user_id, currentUser.id))
+      );
+
     if (existingTodo.length === 0) {
       return c.json({ error: "Todo not found" }, 404);
     }
 
-    const newStatus = existingTodo[0].is_completed === 1 ? 0 : 1;
+    const newStatus = existingTodo[0].is_completed === true ? false : true;
 
     const updatedTodo = await db
       .update(todosTable)
@@ -347,8 +539,11 @@ app.patch("/todos/:id/toggle", async (c) => {
 
     return c.json(updatedTodo[0]);
   } catch (error) {
-    return c.json({ error: "Failed to changee todo status" }, 500);
+    return c.json({ error: "Failed to change todo status" }, 500);
   }
 });
 
-export default app;
+export default {
+  port: 4000,
+  fetch: app.fetch,
+};

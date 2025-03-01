@@ -8,6 +8,21 @@ import {
 
 import { cn } from "@/lib/utils";
 
+const Spinner = () => (
+  <svg
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    className="animate-spin"
+  >
+    <path
+      d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 const buttonVariants = cva(
   [
     "cursor-pointer inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors",
@@ -52,7 +67,7 @@ interface ButtonProps
 
 const Button = React.forwardRef(
   (
-    { className, variant, size, ...props }: ButtonProps,
+    { className, children, variant, size, ...props }: ButtonProps,
     ref: React.Ref<HTMLButtonElement>
   ) => {
     return (
@@ -68,7 +83,9 @@ const Button = React.forwardRef(
         )}
         {...props}
         ref={ref}
-      />
+      >
+        {({ isPending }) => (isPending ? <Spinner /> : <>{children}</>)}
+      </AriaButton>
     );
   }
 );
