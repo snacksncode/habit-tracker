@@ -12,10 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/tabs";
 import { CalendarDate } from "@internationalized/date";
 import {
-  addDays,
-  addHours,
   formatDistance,
-  formatISO,
   isPast,
   isToday,
   isTomorrow,
@@ -27,9 +24,8 @@ import {
   Edit,
   Ellipsis,
   ListTodo,
-  Menu,
+  LogOut,
   Plus,
-  Swords,
   Trash,
   User,
 } from "lucide-react";
@@ -52,6 +48,19 @@ import { JollyNumberField } from "@/components/ui/numberfield";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+// Define auth types
+type User = {
+  id: number;
+  name: string;
+  email: string;
+};
+
+type AuthResponse = {
+  message: string;
+  token: string;
+  user: User;
+};
+
 type Todo = {
   date: string;
   id: number;
@@ -68,23 +77,36 @@ type Habit = {
   freq: "DAILY" | "WEEKLY" | "MONTHLY";
 };
 
-const todosQueryOptions = queryOptions({
-  queryKey: ["todos"],
-  queryFn: async () => {
-    return ky
-      .get(`http://${new URL(window.origin).hostname}:4000/todos`)
-      .json<Todo[]>();
-  },
-});
+// Create a client instance with auth header
+const createClient = (token?: string) => {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["TOKEN"] = token;
+  }
 
-const habitsQueryOptions = queryOptions({
-  queryKey: ["habits"],
-  queryFn: async () => {
-    return ky
-      .get(`http://${new URL(window.origin).hostname}:4000/habits`)
-      .json<Habit[]>();
-  },
-});
+  return ky.create({
+    prefixUrl: `http://${new URL(window.origin).hostname}:4000`,
+    headers,
+  });
+};
+
+const todosQueryOptions = (token?: string) =>
+  queryOptions({
+    queryKey: ["todos", token],
+    queryFn: async () => {
+      const client = createClient(token);
+      return client.get("todos").json<Todo[]>();
+    },
+  });
+
+const habitsQueryOptions = (token?: string) =>
+  queryOptions({
+    queryKey: ["habits", token],
+    queryFn: async () => {
+      const client = createClient(token);
+      return client.get("habits").json<Habit[]>();
+    },
+  });
 
 function sortTodosByDate(todos: Todo[]): Todo[] {
   return [...todos].sort((a, b) => {
@@ -101,6 +123,7 @@ function sortTodosByDate(todos: Todo[]): Todo[] {
 
 const useUpdateHabit = (
   id: string,
+  token: string,
   withDelay?: boolean,
   onSuccess?: () => void
 ) => {
@@ -117,106 +140,91 @@ const useUpdateHabit = (
       newSteps: number;
       newProgress: number;
     }) => {
+      const client = createClient(token);
       if (withDelay) {
         await new Promise((res) => setTimeout(res, 1000));
       }
-      return ky.put(
-        `http://${new URL(window.origin).hostname}:4000/habits/${id}`,
-        {
-          body: JSON.stringify({
-            name: newName,
-            freq: newFreq,
-            to_complete: newSteps,
-            completed: newProgress,
-          }),
-        }
-      );
+      return client.put(`habits/${id}`, {
+        body: JSON.stringify({
+          name: newName,
+          freq: newFreq,
+          to_complete: newSteps,
+          completed: newProgress,
+        }),
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(habitsQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...habitsQueryOptions(token).queryKey],
+      });
       onSuccess?.();
     },
   });
 };
 
-const useUpdateTodo = () => {
+const useUpdateTodo = (token: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["updateTodo"],
+    mutationKey: ["updateTodo", token],
     mutationFn: async (todo: {
       id: number;
       name: string;
       completed: boolean;
     }) => {
-      return ky.put(
-        `http://${new URL(window.origin).hostname}:4000/todos/${todo.id}`,
-        {
-          body: JSON.stringify({
-            name: todo.name,
-            is_completed: todo.completed,
-          }),
-        }
-      );
-    },
-    onMutate: async (newTodo) => {
-      await queryClient.cancelQueries({ queryKey: ["todos"] });
-      const previousTodos = queryClient.getQueryData(
-        todosQueryOptions.queryKey
-      );
-      queryClient.setQueryData(todosQueryOptions.queryKey, (prev) => {
-        if (!prev) return;
-        return prev.map((todo) => {
-          if (todo.id !== newTodo.id) return todo;
-          return { ...todo, completed: newTodo.completed };
-        });
+      const client = createClient(token);
+      return client.put(`todos/${todo.id}`, {
+        body: JSON.stringify({
+          name: todo.name,
+          is_completed: todo.completed,
+        }),
       });
-      return { previousTodos };
     },
-    onError: (_err, _newTodo, context) => {
-      if (!context) return;
-      queryClient.setQueryData(["todos"], context.previousTodos);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries(todosQueryOptions);
+    onSuccess: () => {
+      queryClient.invalidateQueries(todosQueryOptions(token));
     },
   });
 };
 
-const useDeleteTodo = (id: string) => {
+const useDeleteTodo = (id: string, token: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: () => {
-      return ky.delete(
-        `http://${new URL(window.origin).hostname}:4000/todos/${id}`
-      );
+      const client = createClient(token);
+      return client.delete(`todos/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(todosQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...todosQueryOptions(token).queryKey],
+      });
     },
   });
 };
 
-const useDeleteHabit = (id: string) => {
+const useDeleteHabit = (id: string, token: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: () => {
-      return ky.delete(
-        `http://${new URL(window.origin).hostname}:4000/habits/${id}`
-      );
+      const client = createClient(token);
+      return client.delete(`habits/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(habitsQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...habitsQueryOptions(token).queryKey],
+      });
     },
   });
 };
 
 export const Route = createFileRoute("/")({
-  component: HomeComponent,
+  component: AuthenticatedApp,
   loader: async ({ context: { queryClient } }) => {
-    queryClient.ensureQueryData(todosQueryOptions);
-    queryClient.ensureQueryData(habitsQueryOptions);
+    const token = localStorage.getItem("token");
+    if (token) {
+      queryClient.ensureQueryData(todosQueryOptions(token));
+      queryClient.ensureQueryData(habitsQueryOptions(token));
+    }
   },
 });
 
@@ -235,7 +243,7 @@ function sortByFrequency(array: Habit[]) {
   });
 }
 
-const AddHabitSheet = () => {
+const AddHabitSheet = ({ token }: { token: string }) => {
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
@@ -261,12 +269,15 @@ const AddHabitSheet = () => {
       freq: Habit["freq"];
       to_complete: number;
     }) => {
-      return ky.post(`http://${new URL(window.origin).hostname}:4000/habits`, {
+      const client = createClient(token);
+      return client.post("habits", {
         body: JSON.stringify({ name, freq, to_complete }),
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(habitsQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...habitsQueryOptions(token).queryKey],
+      });
       handleClose();
     },
   });
@@ -340,9 +351,11 @@ const AddHabitSheet = () => {
 
 const Habit = ({
   habit,
+  token,
   onProgressChange,
 }: {
   habit: Habit;
+  token: string;
   onProgressChange?: (habitId: string, newValue: number) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -350,8 +363,8 @@ const Habit = ({
   const [isEditMode, setIsEditMode] = useState(false);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
-  const { mutate: deleteHabit } = useDeleteHabit(habit.id.toString());
-  const { mutate } = useUpdateHabit(habit.id.toString());
+  const { mutate: deleteHabit } = useDeleteHabit(habit.id.toString(), token);
+  const { mutate } = useUpdateHabit(habit.id.toString(), token);
 
   const handleValueChange = (value: number[]) => {
     const newValue = value[0];
@@ -478,6 +491,7 @@ const Habit = ({
       </div>
       <EditHabitSheet
         habit={habit}
+        token={token}
         isOpen={isOpen}
         onClose={() => {
           setIsOpen(false);
@@ -487,10 +501,10 @@ const Habit = ({
   );
 };
 
-const Todo = ({ todo }: { todo: Todo }) => {
+const Todo = ({ todo, token }: { todo: Todo; token: string }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const { mutate: updateTodo } = useUpdateTodo();
-  const { mutate: deleteTodo } = useDeleteTodo(todo.id.toString());
+  const { mutate: updateTodo } = useUpdateTodo(token);
+  const { mutate: deleteTodo } = useDeleteTodo(todo.id.toString(), token);
 
   const getPillText = () => {
     const parsed = parseISO(todo.date);
@@ -556,6 +570,7 @@ const Todo = ({ todo }: { todo: Todo }) => {
       </div>
       <EditTodoSheet
         todo={todo}
+        token={token}
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
       />
@@ -567,10 +582,12 @@ const EditHabitSheet = ({
   isOpen,
   onClose,
   habit,
+  token,
 }: {
   habit: Habit;
   isOpen: boolean;
   onClose: () => void;
+  token: string;
 }) => {
   const [name, setName] = useState(habit.name);
   const [freq, setFreq] = useState<Selection>(new Set([habit.freq]));
@@ -579,6 +596,7 @@ const EditHabitSheet = ({
 
   const { mutate, isPending } = useUpdateHabit(
     habit.id.toString(),
+    token,
     true,
     onClose
   );
@@ -652,10 +670,12 @@ const EditTodoSheet = ({
   isOpen,
   onClose,
   todo,
+  token,
 }: {
   todo: Todo;
   isOpen: boolean;
   onClose: () => void;
+  token: string;
 }) => {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(todo.name);
@@ -663,7 +683,7 @@ const EditTodoSheet = ({
   const [date, setDate] = useState<DateValue | null>(
     new CalendarDate(
       parsedDate.getFullYear(),
-      parsedDate.getMonth(),
+      parsedDate.getMonth() + 1, // Date-fns to CalendarDate month conversion
       parsedDate.getDate()
     )
   );
@@ -676,19 +696,19 @@ const EditTodoSheet = ({
       newName: string;
       newDate: string;
     }) => {
+      const client = createClient(token);
       await new Promise((res) => setTimeout(res, 1000));
-      return ky.put(
-        `http://${new URL(window.origin).hostname}:4000/todos/${todo.id}`,
-        {
-          body: JSON.stringify({
-            name: newName,
-            date: newDate,
-          }),
-        }
-      );
+      return client.put(`todos/${todo.id}`, {
+        body: JSON.stringify({
+          name: newName,
+          date: newDate,
+        }),
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(todosQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...todosQueryOptions(token).queryKey],
+      });
       onClose();
     },
   });
@@ -743,7 +763,7 @@ const EditTodoSheet = ({
   );
 };
 
-const AddTodoSheet = () => {
+const AddTodoSheet = ({ token }: { token: string }) => {
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [value, setValue] = useState("");
@@ -763,12 +783,15 @@ const AddTodoSheet = () => {
 
   const { mutate, isPending } = useMutation({
     mutationFn: async ({ todo, date }: { todo: string; date: string }) => {
-      return ky.post(`http://${new URL(window.origin).hostname}:4000/todos`, {
+      const client = createClient(token);
+      return client.post("todos", {
         body: JSON.stringify({ name: todo, date: date }),
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(todosQueryOptions);
+      queryClient.invalidateQueries({
+        queryKey: [...todosQueryOptions(token).queryKey],
+      });
       handleClose();
     },
   });
@@ -835,11 +858,13 @@ const You = ({
   username,
   selectedAvatar,
   setSelectedAvatar,
+  onLogout,
 }: {
   username: string;
   setUsername: (s: string) => void;
   selectedAvatar: number;
   setSelectedAvatar: (a: number) => void;
+  onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(() => {
     return document.body.classList.contains("dark");
@@ -912,11 +937,137 @@ const You = ({
         </Switch>
         <Switch>Send anonymous analytics data</Switch>
       </div>
+
+      <Button className="mt-8 bg-red-500 hover:bg-red-600" onPress={onLogout}>
+        <LogOut className="w-4 h-4 mr-2" /> Logout
+      </Button>
     </div>
   );
 };
 
-function HomeComponent() {
+const LoginScreen = ({
+  onLogin,
+}: {
+  onLogin: (token: string, user: User) => void;
+}) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      const endpoint = isLogin ? "login" : "register";
+      const body = isLogin ? { email, password } : { name, email, password };
+
+      const response = await fetch(
+        `http://${new URL(window.origin).hostname}:4000/${endpoint}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+
+      if (isLogin) {
+        // Login response should have token and user
+        onLogin(data.token, data.user);
+      } else {
+        // After registration, switch to login view
+        setIsLogin(true);
+        setPassword(""); // Clear password for security
+        setError("Registration successful! You can now log in");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-md space-y-8 bg-card p-6 rounded-lg shadow-md">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold">
+            {isLogin ? "Login" : "Register"}
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            {isLogin ? "Sign in to your account" : "Create a new account"}
+          </p>
+        </div>
+
+        {error && (
+          <div className="bg-red-500/20 border border-red-500 text-red-700 p-3 rounded">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {!isLogin && (
+            <TextField
+              label="Name"
+              value={name}
+              onChange={setName}
+              isRequired
+            />
+          )}
+
+          <TextField
+            label="Email"
+            value={email}
+            onChange={setEmail}
+            type="email"
+            isRequired
+          />
+
+          <TextField
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            type="password"
+            isRequired
+          />
+
+          <Button type="submit" className="w-full" isPending={loading}>
+            {isLogin ? "Sign In" : "Create Account"}
+          </Button>
+        </form>
+
+        <div className="text-center mt-4">
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError(null);
+            }}
+            className="text-primary hover:underline"
+          >
+            {isLogin
+              ? "Don't have an account? Register"
+              : "Already have an account? Login"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function HomeComponent({ token }: { token: string }) {
   const [username, setUsername] = useState("snacksncode");
   const [selectedAvatar, setSelectedAvatar] = useState(0);
   const avatarSrc = [
@@ -925,8 +1076,8 @@ function HomeComponent() {
     "archer.png",
     "warrior.png",
   ][selectedAvatar];
-  const { data: todos } = useSuspenseQuery(todosQueryOptions);
-  const { data: habits } = useSuspenseQuery(habitsQueryOptions);
+  const { data: todos } = useSuspenseQuery(todosQueryOptions(token));
+  const { data: habits } = useSuspenseQuery(habitsQueryOptions(token));
   const sortedHabits = sortByFrequency(habits);
   const sortedTodos = sortTodosByDate(todos);
 
@@ -972,18 +1123,18 @@ function HomeComponent() {
           <h1 className="text-3xl mx-4 mt-4 mb-4">Todos</h1>
           <div className="flex overflow-auto px-4 pb-16 flex-col gap-4">
             {sortedTodos.map((todo) => (
-              <Todo key={todo.id} todo={todo} />
+              <Todo key={todo.id} todo={todo} token={token} />
             ))}
-            <AddTodoSheet />
+            <AddTodoSheet token={token} />
           </div>
         </TabPanel>
         <TabPanel className="flex flex-1 overflow-auto flex-col" id="habits">
           <h1 className="text-3xl mx-4 mt-4 mb-4">Habits</h1>
           <div className="flex overflow-auto px-4 pb-16 flex-col gap-4">
             {sortedHabits.map((habit) => (
-              <Habit key={key(habit)} habit={habit} />
+              <Habit key={key(habit)} habit={habit} token={token} />
             ))}
-            <AddHabitSheet />
+            <AddHabitSheet token={token} />
           </div>
         </TabPanel>
         <TabPanel className="flex flex-1 overflow-auto flex-col" id="account">
@@ -993,9 +1144,39 @@ function HomeComponent() {
             setUsername={setUsername}
             selectedAvatar={selectedAvatar}
             setSelectedAvatar={setSelectedAvatar}
+            onLogout={() => {
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              window.location.reload();
+            }}
           />
         </TabPanel>
       </Tabs>
     </div>
   );
+}
+
+function AuthenticatedApp() {
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem("token")
+  );
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUser = localStorage.getItem("user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const handleLogin = (token: string, user: User) => {
+    localStorage.setItem("token", token);
+    localStorage.setItem("user", JSON.stringify(user));
+    setToken(token);
+    setUser(user);
+  };
+
+  // If no token exists, show login screen
+  if (!token) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  // Otherwise show the main app
+  return <HomeComponent token={token} />;
 }

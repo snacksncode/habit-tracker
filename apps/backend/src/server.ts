@@ -114,7 +114,6 @@ app.post("/register", async (c) => {
 // Login endpoint
 app.post("/login", async (c) => {
   try {
-    console.log("HIT");
     const body = await c.req.json();
 
     if (!body.email || !body.password) {
@@ -126,8 +125,6 @@ app.post("/login", async (c) => {
       .from(usersTable)
       .where(eq(usersTable.email, body.email))
       .limit(1);
-
-    console.log(user);
 
     if (user.length === 0 || user[0].password !== body.password) {
       return c.json({ error: "Invalid credentials" }, 401);
