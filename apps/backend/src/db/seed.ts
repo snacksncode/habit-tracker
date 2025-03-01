@@ -68,7 +68,7 @@ async function main() {
     const habitOption = habitOptions[i % habitOptions.length];
     habits.push({
       id: i + 1,
-      user_id: Math.random() < 0.5 ? 1 : 2, // Randomly assign to user 1 or 2
+      user_id: Math.random() < 0.5 ? 1 : 2,
       name: habitOption.name,
       completed: Math.floor(Math.random() * 5),
       to_complete: Math.floor(Math.random() * 5) + 1,

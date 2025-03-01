@@ -11,7 +11,6 @@ const queryClient = new QueryClient({
   },
 });
 
-// Set up a Router instance
 const router = createRouter({
   routeTree,
   defaultPreload: "intent",
@@ -20,7 +19,6 @@ const router = createRouter({
   scrollRestoration: true,
 });
 
-// Register things for typesafety
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;

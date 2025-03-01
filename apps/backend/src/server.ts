@@ -4,14 +4,12 @@ import { usersTable, habitsTable, todosTable } from "./db/schema";
 import { cors } from "hono/cors";
 import { eq, and } from "drizzle-orm";
 
-// Define TypeScript interfaces
 interface User {
   id: number;
   name: string;
   email: string;
 }
 
-// Define our custom context with the user variable
 type CustomContext = {
   Variables: {
     user: User;
@@ -22,10 +20,8 @@ const app = new Hono<CustomContext>();
 
 app.use("*", cors());
 
-// In-memory token storage
 const tokenStore = new Map<string, User>();
 
-// Generate a simple token
 function generateToken(): string {
   return (
     Math.random().toString(36).substring(2, 15) +
@@ -33,7 +29,6 @@ function generateToken(): string {
   );
 }
 
-// Authentication middleware with proper typing
 const authMiddleware = async (c: any, next: any) => {
   const token = c.req.header("TOKEN");
 
@@ -41,18 +36,15 @@ const authMiddleware = async (c: any, next: any) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  // Add user info to the context
   c.set("user", tokenStore.get(token));
 
   await next();
 };
 
-// Public routes
 app.get("/", async (c) => {
   return c.json({ message: "Habit Tracker API!" });
 });
 
-// Registration endpoint
 app.post("/register", async (c) => {
   try {
     const body = await c.req.json();
@@ -61,18 +53,15 @@ app.post("/register", async (c) => {
       return c.json({ error: "Name, email, and password are required" }, 400);
     }
 
-    // Simple email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(body.email)) {
       return c.json({ error: "Invalid email format" }, 400);
     }
 
-    // Simple password validation
     if (body.password.length < 6) {
       return c.json({ error: "Password must be at least 6 characters" }, 400);
     }
 
-    // Check if user already exists
     const existingUser = await db
       .select()
       .from(usersTable)
@@ -111,7 +100,6 @@ app.post("/register", async (c) => {
   }
 });
 
-// Login endpoint
 app.post("/login", async (c) => {
   try {
     const body = await c.req.json();
@@ -130,10 +118,8 @@ app.post("/login", async (c) => {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    // Generate token
     const token = generateToken();
 
-    // Store token with user info
     tokenStore.set(token, {
       id: user[0].id,
       name: user[0].name,
@@ -154,7 +140,6 @@ app.post("/login", async (c) => {
   }
 });
 
-// Logout endpoint
 app.post("/logout", authMiddleware, async (c) => {
   const token = c.req.header("TOKEN");
   if (token) {
@@ -163,7 +148,6 @@ app.post("/logout", authMiddleware, async (c) => {
   return c.json({ message: "Logged out successfully" });
 });
 
-// Protected user endpoints
 app.get("/users", authMiddleware, async (c) => {
   return c.json(
     await db
@@ -180,7 +164,6 @@ app.get("/users/:id", authMiddleware, async (c) => {
   const id = parseInt(c.req.param("id"));
   const currentUser = c.get("user");
 
-  // Users can only access their own information
   if (currentUser.id !== id) {
     return c.json({ error: "Access denied" }, 403);
   }
@@ -191,7 +174,6 @@ app.get("/users/:id", authMiddleware, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  // Don't return password in response
   const { password, ...userWithoutPassword } = user[0];
   return c.json(userWithoutPassword);
 });
@@ -201,7 +183,6 @@ app.put("/users/:id", authMiddleware, async (c) => {
     const id = parseInt(c.req.param("id"));
     const currentUser = c.get("user");
 
-    // Users can only update their own information
     if (currentUser.id !== id) {
       return c.json({ error: "Access denied" }, 403);
     }
@@ -237,7 +218,6 @@ app.put("/users/:id", authMiddleware, async (c) => {
       .where(eq(usersTable.id, id))
       .returning();
 
-    // Don't return password in response
     const { password, ...userWithoutPassword } = updatedUser[0];
     return c.json(userWithoutPassword);
   } catch (error) {
@@ -250,7 +230,6 @@ app.delete("/users/:id", authMiddleware, async (c) => {
     const id = parseInt(c.req.param("id"));
     const currentUser = c.get("user");
 
-    // Users can only delete their own account
     if (currentUser.id !== id) {
       return c.json({ error: "Access denied" }, 403);
     }
@@ -271,11 +250,9 @@ app.delete("/users/:id", authMiddleware, async (c) => {
   }
 });
 
-// Protected habit endpoints
 app.get("/habits", authMiddleware, async (c) => {
   const currentUser = c.get("user");
 
-  // Only return habits belonging to the authenticated user
   return c.json(
     await db
       .select()
@@ -316,7 +293,7 @@ app.post("/habits", authMiddleware, async (c) => {
     const newHabit = await db
       .insert(habitsTable)
       .values({
-        user_id: currentUser.id, // Associate with current user
+        user_id: currentUser.id,
         name: body.name,
         completed: body.completed || 0,
         to_complete: body.to_complete || 1,
@@ -395,12 +372,9 @@ app.delete("/habits/:id", authMiddleware, async (c) => {
     return c.json({ error: "Failed to delete habit" }, 500);
   }
 });
-
-// Protected todo endpoints
 app.get("/todos", authMiddleware, async (c) => {
   const currentUser = c.get("user");
 
-  // Only return todos belonging to the authenticated user
   return c.json(
     await db
       .select()
@@ -438,7 +412,7 @@ app.post("/todos", authMiddleware, async (c) => {
     const newTodo = await db
       .insert(todosTable)
       .values({
-        user_id: currentUser.id, // Associate with current user
+        user_id: currentUser.id,
         date: body.date,
         name: body.name,
         is_completed: false,

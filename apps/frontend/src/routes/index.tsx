@@ -48,11 +48,14 @@ import { JollyNumberField } from "@/components/ui/numberfield";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-// Define auth types
 type User = {
   id: number;
   name: string;
   email: string;
+  avatar_id: number;
+  health: number;
+  experience: number;
+  level: number;
 };
 
 type AuthResponse = {
@@ -77,7 +80,6 @@ type Habit = {
   freq: "DAILY" | "WEEKLY" | "MONTHLY";
 };
 
-// Create a client instance with auth header
 const createClient = (token?: string) => {
   const headers: Record<string, string> = {};
   if (token) {
@@ -89,6 +91,17 @@ const createClient = (token?: string) => {
     headers,
   });
 };
+
+const userQueryOptions = (token?: string, userId?: number) =>
+  queryOptions({
+    queryKey: ["user", token, userId],
+    queryFn: async () => {
+      if (!token || !userId) return null;
+      const client = createClient(token);
+      return client.get(`users/${userId}`).json<User>();
+    },
+    enabled: !!token && !!userId,
+  });
 
 const todosQueryOptions = (token?: string) =>
   queryOptions({
@@ -120,6 +133,23 @@ function sortTodosByDate(todos: Todo[]): Todo[] {
     return dateA.getTime() - dateB.getTime();
   });
 }
+
+const useUpdateUserProfile = (userId: number, token: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (userData: { name?: string; avatar_id?: number }) => {
+      const client = createClient(token);
+      return client.put(`users/${userId}`, {
+        body: JSON.stringify(userData),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["user", token, userId],
+      });
+    },
+  });
+};
 
 const useUpdateHabit = (
   id: string,
@@ -221,7 +251,11 @@ export const Route = createFileRoute("/")({
   component: AuthenticatedApp,
   loader: async ({ context: { queryClient } }) => {
     const token = localStorage.getItem("token");
-    if (token) {
+    const userStr = localStorage.getItem("user");
+    const user = userStr ? JSON.parse(userStr) : null;
+
+    if (token && user?.id) {
+      queryClient.ensureQueryData(userQueryOptions(token, user.id));
       queryClient.ensureQueryData(todosQueryOptions(token));
       queryClient.ensureQueryData(habitsQueryOptions(token));
     }
@@ -352,10 +386,12 @@ const AddHabitSheet = ({ token }: { token: string }) => {
 const Habit = ({
   habit,
   token,
+  userId,
   onProgressChange,
 }: {
   habit: Habit;
   token: string;
+  userId: number;
   onProgressChange?: (habitId: string, newValue: number) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -492,6 +528,7 @@ const Habit = ({
       <EditHabitSheet
         habit={habit}
         token={token}
+        userId={userId}
         isOpen={isOpen}
         onClose={() => {
           setIsOpen(false);
@@ -583,11 +620,13 @@ const EditHabitSheet = ({
   onClose,
   habit,
   token,
+  userId,
 }: {
   habit: Habit;
   isOpen: boolean;
   onClose: () => void;
   token: string;
+  userId: number;
 }) => {
   const [name, setName] = useState(habit.name);
   const [freq, setFreq] = useState<Selection>(new Set([habit.freq]));
@@ -854,21 +893,21 @@ const AddTodoSheet = ({ token }: { token: string }) => {
 };
 
 const You = ({
-  setUsername,
-  username,
-  selectedAvatar,
-  setSelectedAvatar,
+  user,
+  token,
   onLogout,
 }: {
-  username: string;
-  setUsername: (s: string) => void;
-  selectedAvatar: number;
-  setSelectedAvatar: (a: number) => void;
+  user: User;
+  token: string;
   onLogout: () => void;
 }) => {
+  const [name, setName] = useState(user.name);
+  const [selectedAvatar, setSelectedAvatar] = useState(user.avatar_id - 1); // Convert 1-based to 0-based index
   const [isDark, setIsDark] = useState(() => {
     return document.body.classList.contains("dark");
   });
+
+  const { mutate: updateProfile } = useUpdateUserProfile(user.id, token);
 
   const setMode = (isDark: boolean) => {
     setIsDark(isDark);
@@ -879,14 +918,41 @@ const You = ({
     }
   };
 
+  useEffect(() => {
+    setName(user.name);
+  }, [user.name]);
+
+  useEffect(() => {
+    setSelectedAvatar(user.avatar_id - 1);
+  }, [user.avatar_id]);
+
+  let timeoutRef = useRef<Timer>();
+
+  const handleNameChange = (value: string) => {
+    setName(value);
+  };
+
+  useEffect(() => {
+    timeoutRef.current = setTimeout(() => {
+      updateProfile({ name });
+    }, 500);
+
+    return () => clearTimeout(timeoutRef.current);
+  }, [name]);
+
+  const handleAvatarChange = (index: number) => {
+    setSelectedAvatar(index);
+    updateProfile({ avatar_id: index + 1 });
+  };
+
   return (
     <div className="px-4 flex flex-col">
-      <TextField label="Username" value={username} onChange={setUsername} />
+      <TextField label="Username" value={name} onChange={handleNameChange} />
       <div className="mt-4">
         <Label>Avatar</Label>
         <div className="grid grid-cols-4 gap-4">
           <button
-            onClick={() => setSelectedAvatar(0)}
+            onClick={() => handleAvatarChange(0)}
             className={cn(
               "aspect-square rounded-md p-1 overflow-hidden",
               selectedAvatar === 0 &&
@@ -896,7 +962,7 @@ const You = ({
             <img src="/angel.png" className="w-full h-full object-contain" />
           </button>
           <button
-            onClick={() => setSelectedAvatar(1)}
+            onClick={() => handleAvatarChange(1)}
             className={cn(
               "aspect-square rounded-md p-1 overflow-hidden",
               selectedAvatar === 1 &&
@@ -909,7 +975,7 @@ const You = ({
             />
           </button>
           <button
-            onClick={() => setSelectedAvatar(2)}
+            onClick={() => handleAvatarChange(2)}
             className={cn(
               "aspect-square rounded-md p-1 overflow-hidden",
               selectedAvatar === 2 &&
@@ -919,7 +985,7 @@ const You = ({
             <img src="/archer.png" className="w-full h-full object-contain" />
           </button>
           <button
-            onClick={() => setSelectedAvatar(3)}
+            onClick={() => handleAvatarChange(3)}
             className={cn(
               "aspect-square rounded-md p-1 overflow-hidden",
               selectedAvatar === 3 &&
@@ -938,7 +1004,10 @@ const You = ({
         <Switch>Send anonymous analytics data</Switch>
       </div>
 
-      <Button className="mt-8 bg-red-500 hover:bg-red-600" onPress={onLogout}>
+      <Button
+        className="mt-8 mb-4 bg-red-500 hover:bg-red-600"
+        onPress={onLogout}
+      >
         <LogOut className="w-4 h-4 mr-2" /> Logout
       </Button>
     </div>
@@ -984,13 +1053,11 @@ const LoginScreen = ({
       }
 
       if (isLogin) {
-        // Login response should have token and user
         onLogin(data.token, data.user);
       } else {
-        // After registration, switch to login view
         setIsLogin(true);
-        setPassword(""); // Clear password for security
-        setError("Registration successful! You can now log in");
+        setPassword("");
+        setError("Registration successful!");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -1012,7 +1079,7 @@ const LoginScreen = ({
         </div>
 
         {error && (
-          <div className="bg-red-500/20 border border-red-500 text-red-700 p-3 rounded">
+          <div className="bg-red-500/20 border border-red-500 text-red-300 text-sm p-3 rounded">
             {error}
           </div>
         )}
@@ -1067,24 +1134,27 @@ const LoginScreen = ({
   );
 };
 
-function HomeComponent({ token }: { token: string }) {
-  const [username, setUsername] = useState("snacksncode");
-  const [selectedAvatar, setSelectedAvatar] = useState(0);
-  const avatarSrc = [
-    "angel.png",
-    "dark-angel.png",
-    "archer.png",
-    "warrior.png",
-  ][selectedAvatar];
+function HomeComponent({ token, userId }: { token: string; userId: number }) {
+  const { data: userData } = useSuspenseQuery(userQueryOptions(token, userId));
   const { data: todos } = useSuspenseQuery(todosQueryOptions(token));
   const { data: habits } = useSuspenseQuery(habitsQueryOptions(token));
   const sortedHabits = sortByFrequency(habits);
   const sortedTodos = sortTodosByDate(todos);
 
+  const user = userData as User;
+  const avatarSrc = [
+    "angel.png",
+    "dark-angel.png",
+    "archer.png",
+    "warrior.png",
+  ][(user?.avatar_id || 1) - 1];
+
   return (
     <div className="h-svh flex flex-col">
       <div className="h-60 shrink-0 bg-primary/5 flex">
-        <p className="absolute top-4 left-4 text-xl">{username}</p>
+        <p className="absolute top-4 left-4 text-xl">
+          {user?.name || "<empty>"}
+        </p>
         <div className="flex flex-col justify-end mb-8 ml-4">
           <div>
             <Label>Health</Label>
@@ -1093,7 +1163,12 @@ function HomeComponent({ token }: { token: string }) {
             </div>
           </div>
           <div className="mt-2">
-            <Label>Experience</Label>
+            <Label>
+              Experience{" "}
+              <span className="text-xs text-muted-foreground">
+                (Lvl {user?.level || 0})
+              </span>
+            </Label>
             <div className="bg-amber-400/20 w-30 h-3">
               <div className="bg-amber-400 w-1/4 h-3"></div>
             </div>
@@ -1132,24 +1207,29 @@ function HomeComponent({ token }: { token: string }) {
           <h1 className="text-3xl mx-4 mt-4 mb-4">Habits</h1>
           <div className="flex overflow-auto px-4 pb-16 flex-col gap-4">
             {sortedHabits.map((habit) => (
-              <Habit key={key(habit)} habit={habit} token={token} />
+              <Habit
+                key={key(habit)}
+                habit={habit}
+                token={token}
+                userId={userId}
+              />
             ))}
             <AddHabitSheet token={token} />
           </div>
         </TabPanel>
         <TabPanel className="flex flex-1 overflow-auto flex-col" id="account">
           <h1 className="text-3xl mx-4 mt-4 mb-4">You</h1>
-          <You
-            username={username}
-            setUsername={setUsername}
-            selectedAvatar={selectedAvatar}
-            setSelectedAvatar={setSelectedAvatar}
-            onLogout={() => {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
-              window.location.reload();
-            }}
-          />
+          {user && (
+            <You
+              user={user}
+              token={token}
+              onLogout={() => {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user");
+                window.location.reload();
+              }}
+            />
+          )}
         </TabPanel>
       </Tabs>
     </div>
@@ -1172,11 +1252,9 @@ function AuthenticatedApp() {
     setUser(user);
   };
 
-  // If no token exists, show login screen
-  if (!token) {
+  if (!token || !user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // Otherwise show the main app
-  return <HomeComponent token={token} />;
+  return <HomeComponent token={token} userId={user.id} />;
 }
